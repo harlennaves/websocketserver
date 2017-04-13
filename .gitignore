@@ -1,0 +1,3 @@
+src/WebSocketServer.Core/obj/
+*.suo
+src/WebSocketServer.Core/bin/
