@@ -10,11 +10,25 @@ namespace WebSocketServer.Core
     /// <see cref="https://tools.ietf.org/html/rfc6455#section-5.2"/>
     public class WebSocketFrame
     {
+        /// <summary>
+        /// Represents header of the websocket frame
+        /// </summary>
         private byte[] _header;
 
-        public WebSocketFrame()
+        private WebSocketFrame(bool masked)
         {
-            _header = new byte[102];
+            _header = new byte[masked ? 21 : 17];
+            Mask = masked;
+        }
+
+        public WebSocketFrame(bool eom, bool masked, OpCodeEnum opCode, ArraySegment<byte> payload) : this(masked)
+        {
+            OpCode = opCode;
+            Fin = eom;
+            ExtendedPayloadLength = payload.Count;
+            Frame = new byte[_header.Length + payload.Count];
+            Buffer.BlockCopy(_header, 0, Frame, 0, _header.Length);
+            Buffer.BlockCopy(payload.Array, 0, Frame, _header.Length, payload.Count);
         }
 
         /// <summary>
@@ -103,11 +117,11 @@ namespace WebSocketServer.Core
             get
             {
                 if (PayloadLength <= 125) return PayloadLength;
-                else if (PayloadLength == 126) return (_header[10] << 8) + _header[11];
-                else return (_header[10] << 56) + (_header[11] << 48) + 
-                        (_header[12] << 40) + (_header[13] << 32) + 
-                        (_header[14] << 24) + (_header[15] << 16) + 
-                        (_header[16] << 8) + _header[17];
+                else if (PayloadLength == 126) return (_header[11] << 8) + _header[10];
+                else return (_header[17] << 56) + (_header[16] << 48) + 
+                        (_header[15] << 40) + (_header[14] << 32) + 
+                        (_header[13] << 24) + (_header[12] << 16) + 
+                        (_header[11] << 8) + _header[10];
             }
             set
             {
@@ -117,21 +131,21 @@ namespace WebSocketServer.Core
                 {
                     PayloadLength = 126;
 
-                    _header[10] = (byte)(value >> 8);
-                    _header[11] = (byte)value;
+                    _header[10] = (byte)value;
+                    _header[11] = (byte)(value >> 8);
                 }
                 else
                 {
                     PayloadLength = 127;
 
-                    _header[10] = (byte)(value >> 56);
-                    _header[11] = (byte)(value >> 48);
-                    _header[12] = (byte)(value >> 40);
-                    _header[13] = (byte)(value >> 32);
-                    _header[14] = (byte)(value >> 24);
-                    _header[15] = (byte)(value >> 16);
-                    _header[16] = (byte)(value >> 8);
-                    _header[17] = (byte)(value);
+                    _header[10] = (byte)value;
+                    _header[11] = (byte)(value >> 8);
+                    _header[12] = (byte)(value >> 16);
+                    _header[13] = (byte)(value >> 24);
+                    _header[14] = (byte)(value >> 32);
+                    _header[15] = (byte)(value >> 40);
+                    _header[16] = (byte)(value >> 48);
+                    _header[17] = (byte)(value >> 56);
                 }
             }
         }
@@ -147,18 +161,29 @@ namespace WebSocketServer.Core
             {
                 if (!Mask) return 0;
                 var offset = MaskOffset;
-                return (_header[offset] << 24) + (_header[offset + 1] << 16) + 
-                    (_header[offset + 2] << 8) + _header[offset + 3];
+                return (_header[offset + 3] << 24) + (_header[offset + 2] << 16) + 
+                    (_header[offset + 1] << 8) + _header[offset];
             }
             set
             {
                 var offset = MaskOffset;
-                _header[offset] = (byte)(value >> 24);
-                _header[offset + 1] = (byte)(value >> 16);
-                _header[offset + 2] = (byte)(value >> 8);
-                _header[offset + 3] = (byte)value;
+
+                _header[offset] = (byte)value;
+                _header[offset + 1] = (byte)(value >> 8);
+                _header[offset + 2] = (byte)(value >> 16);
+                _header[offset + 3] = (byte)(value >> 24);
             }
         }
+
+        /// <summary>
+        /// Payload data
+        /// </summary>
+        public ArraySegment<byte> Payload { get; private set; }
+
+        /// <summary>
+        /// Represents entire websocket frame serialized into byte array (header + payload data)
+        /// </summary>
+        public byte[] Frame { get; private set; }
 
         private int MaskOffset { get { return PayloadLength <= 125 ? 10 : PayloadLength == 126 ? 12 : 18; } }
     }
