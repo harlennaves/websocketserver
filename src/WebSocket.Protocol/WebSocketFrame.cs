@@ -1,6 +1,6 @@
 ﻿using System;
 
-namespace WebSocketServer.Core
+namespace WebSocket.Protocol
 {
     /// <summary>
     /// Represents a socket frame message used to transmit data over WebSockets
@@ -19,14 +19,26 @@ namespace WebSocketServer.Core
             Mask = masked;
         }
 
-        public WebSocketFrame(bool eom, bool masked, OpCodeEnum opCode, ArraySegment<byte> payload) : this(masked)
+        public WebSocketFrame(bool eom, bool masked, OpCodeEnum opCode, byte[] payload) : this(masked)
         {
             OpCode = opCode;
             Fin = eom;
-            ExtendedPayloadLength = payload.Count;
-            Frame = new byte[_header.Length + payload.Count];
+            ExtendedPayloadLength = payload.Length;
+            Frame = new byte[_header.Length + payload.Length];
+            Payload = payload;
             Buffer.BlockCopy(_header, 0, Frame, 0, _header.Length);
-            Buffer.BlockCopy(payload.Array, 0, Frame, _header.Length, payload.Count);
+            Buffer.BlockCopy(payload, 0, Frame, _header.Length, payload.Length);
+        }
+
+        public WebSocketFrame(byte[] frame)
+        {
+            if (frame == null || frame.Length < 17) throw new WebSocketFrameException();
+
+            var masked = BitConverter.ToBoolean(frame, 8);
+            _header = new byte[masked ? 21 : 17];
+            Buffer.BlockCopy(frame, 0, _header, 0, _header.Length);
+            Payload = new byte[frame.Length - _header.Length];
+            Buffer.BlockCopy(frame, _header.Length, Payload, 0, Payload.Length);
         }
 
         /// <summary>
@@ -176,7 +188,7 @@ namespace WebSocketServer.Core
         /// <summary>
         /// Payload data
         /// </summary>
-        public ArraySegment<byte> Payload { get; private set; }
+        public byte[] Payload { get; private set; }
 
         /// <summary>
         /// Represents entire websocket frame serialized into byte array (header + payload data)

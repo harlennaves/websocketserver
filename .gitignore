@@ -2,3 +2,4 @@ src/WebSocketServer.Core/obj/
 *.suo
 src/WebSocketServer.Core/bin/
 src/WebSocket.Protocol/obj/
+src/WebSocket.Protocol/bin/

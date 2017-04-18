@@ -2,73 +2,56 @@
 using System.Threading.Tasks;
 using System.Linq;
 
-namespace WebSocketServer.Core
+namespace WebSocket.Protocol
 {
-    public class WebSocketMessage : IDisposable
+    public static class WebSocketMessage
     {
-        private const int FrameSize = 4050;
+        private const int FrameSize = 4071;
 
-        private WebSocketFrame[] _frames;
-
-        public WebSocketMessage(WebSocketFrame[] frames)
+        public static WebSocketFrame[] Packetize(byte[] payload)
         {
-            _frames = frames;
-        }
+            if (payload == null || payload.Length == 0) return new WebSocketFrame[0];
 
-        public WebSocketMessage(byte[] payload)
-        {
-            Payload = payload;
-        }
-
-        public byte[] Payload { get; private set; }
-
-        public void Dispose()
-        {
-            Payload = null;
-            _frames = null;
-        }
-
-        public async Task<WebSocketFrame[]> PacketizeAsync()
-        {
-            return await Task.Run(() =>
+            if (payload.Length <= FrameSize)
             {
-                if (Payload == null || Payload.Length == 0) return null;
+                return new[] { new WebSocketFrame(true, false, OpCodeEnum.BinaryFrame, payload) };
+            }
 
-                if (Payload.Length <= FrameSize)
-                    return new[] { new WebSocketFrame(true, false, OpCodeEnum.BinaryFrame, new ArraySegment<byte>(Payload)) };
+            var packagesLength = payload.Length / FrameSize;
+            var lastFrameSize = (payload.Length % FrameSize);
+            if (lastFrameSize > 0)
+                packagesLength++;
 
-                var packagesLength = Payload.Length / FrameSize + (Payload.Length % FrameSize);
+            var frames = new WebSocketFrame[packagesLength];
 
-                var frames = new WebSocketFrame[packagesLength];
-
-                var offset = 0;
-
-                for (int index = 0; index < packagesLength; index++)
-                {
-                    var isFinal = (index == packagesLength - 1);
-                    var bufferLength = isFinal ? Payload.Length - (offset * FrameSize) : FrameSize;
-                    var buffer = new byte[bufferLength];
-                    Buffer.BlockCopy(Payload, offset * FrameSize, buffer, 0, bufferLength);
-                    frames[index] = new WebSocketFrame(isFinal, false, index == 0 ? OpCodeEnum.BinaryFrame : OpCodeEnum.ContinuationFrame, new ArraySegment<byte>(buffer));
-                }
-                _frames = frames;
-                return frames;
-            });
-        }
-
-        public async void UnpacketizeAsync()
-        {
-            if (_frames == null || _frames.Length == 0) return;
-            await Task.Run(() =>
+            for (int index = 0, frameId = 0; index <= payload.Length; index += FrameSize, frameId++)
             {
-                var messageSize = _frames.Sum(frame => frame.ExtendedPayloadLength);
-                Payload = new byte[messageSize];
-
-                for (int index = 0; index < _frames.Length; index++)
-                {
-                    Buffer.BlockCopy(_frames[index].Payload.Array, 0, Payload, (int)_frames[index].ExtendedPayloadLength * index, (int)_frames[index].ExtendedPayloadLength);
-                }
-            });
+                var remainingBits = payload.Length - index;
+                var isFinal = remainingBits < FrameSize || remainingBits == 0;
+                var bufferLength = isFinal ? remainingBits : FrameSize;
+                var buffer = new byte[bufferLength];
+                Buffer.BlockCopy(payload, index, buffer, 0, bufferLength);
+                frames[frameId] = new WebSocketFrame(isFinal, false, frameId == 0 ? OpCodeEnum.BinaryFrame : OpCodeEnum.ContinuationFrame, buffer);
+            } 
+            return frames;
         }
+
+        public static byte[] Unpacketize(WebSocketFrame[] frames)
+        {
+            if (frames == null || frames.Length == 0) return new byte[0];
+
+            var messageSize = frames.Sum(frame => frame.ExtendedPayloadLength);
+            var payload = new byte[messageSize];
+
+            for (int index = 0, offset = 0; index < frames.Length; index++)
+            {
+                var frame = frames[index];
+                Buffer.BlockCopy(frame.Payload, 0, payload, offset, (int)frame.ExtendedPayloadLength);
+                offset += (int)frame.ExtendedPayloadLength;
+            }
+
+            return payload;
+        }
+        
     }
 }
